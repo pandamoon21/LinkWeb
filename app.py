@@ -1,19 +1,37 @@
 import hmac
+import json
 import os
 import pathlib
-from flask import Flask, jsonify, render_template, request, redirect, url_for, Response
+import shutil
 import sqlite3
+import time
+from urllib.parse import urlparse
+
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
+
+from config import CONFIG
 
 app = Flask(__name__)
 
-DB_PATH = "links.db"
+BASE_DIR = pathlib.Path(__file__).parent
+DB_PATH = CONFIG["db_path"]
+BACKUP_DIR = pathlib.Path(CONFIG["backup_dir"])
+BACKUP_KEEP = CONFIG["backup_keep"]
 
 # --- Basic auth -----------------------------------------------------------
-# Set these via environment variables (e.g. in the systemd unit). If
-# LINKWEB_USER / LINKWEB_PASSWORD are unset, auth is disabled so local
-# development still works out of the box.
-AUTH_USER = os.environ.get("LINKWEB_USER", "")
-AUTH_PASSWORD = os.environ.get("LINKWEB_PASSWORD", "")
+# Credentials come from config.py, which merges (highest first) real
+# environment variables, a .env file, and config.yaml. Leave both empty to
+# disable auth entirely for local development.
+AUTH_USER = CONFIG["user"]
+AUTH_PASSWORD = CONFIG["password"]
 AUTH_ENABLED = bool(AUTH_USER and AUTH_PASSWORD)
 
 
@@ -37,11 +55,50 @@ def require_auth():
     return None
 
 
-
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+# --- Tags helpers ---------------------------------------------------------
+# Tags are stored as a comma separated string on each row. Keeping it in a
+# single column avoids a join table and keeps the existing queries intact.
+def normalize_tags(raw):
+    seen = []
+    for part in (raw or "").replace(";", ",").split(","):
+        tag = part.strip()
+        if tag and tag not in seen:
+            seen.append(tag)
+    return ",".join(seen)
+
+
+def tags_list(value):
+    return [t for t in (value or "").split(",") if t]
+
+
+# --- Backup ---------------------------------------------------------------
+def backup_db(reason="auto"):
+    """Copy links.db into backups/ and keep only the newest BACKUP_KEEP."""
+    if not pathlib.Path(DB_PATH).exists():
+        return None
+    BACKUP_DIR.mkdir(exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    dest = BACKUP_DIR / f"links-{stamp}-{reason}.db"
+    # Flush any pending WAL/journal writes before copying.
+    with get_db() as conn:
+        conn.execute("VACUUM")
+    shutil.copy2(DB_PATH, dest)
+    backups = sorted(BACKUP_DIR.glob("links-*.db"), reverse=True)
+    for stale in backups[BACKUP_KEEP:]:
+        stale.unlink()
+    return dest
+
+
+def list_backups():
+    if not BACKUP_DIR.is_dir():
+        return []
+    return sorted((p.name for p in BACKUP_DIR.glob("links-*.db")), reverse=True)
 
 
 def init_db():
@@ -54,6 +111,7 @@ def init_db():
                 url TEXT NOT NULL,
                 favorite INTEGER NOT NULL DEFAULT 0,
                 position INTEGER NOT NULL DEFAULT 0,
+                tags TEXT NOT NULL DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
@@ -73,6 +131,19 @@ def init_db():
                 )
                 """
             )
+        if "tags" not in cols:
+            conn.execute("ALTER TABLE links ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
+
+
+def favicon_url(url):
+    """Best-effort favicon for a link, served through a public resolver."""
+    try:
+        host = urlparse(url).hostname
+    except ValueError:
+        host = None
+    if not host:
+        return ""
+    return f"https://www.google.com/s2/favicons?domain={host}&sz=64"
 
 
 @app.route("/")
@@ -84,19 +155,30 @@ def index():
             ORDER BY favorite DESC, position ASC, created_at DESC, id DESC
             """
         ).fetchall()
-    return render_template("index.html", links=links)
+    all_tags = sorted({t for link in links for t in tags_list(link["tags"])})
+    return render_template(
+        "index.html",
+        links=links,
+        all_tags=all_tags,
+        favicon_url=favicon_url,
+        tags_list=tags_list,
+        backups=list_backups(),
+    )
 
 
 @app.route("/add", methods=["POST"])
 def add():
     name = request.form["name"].strip()
     url = request.form["url"].strip()
+    tags = normalize_tags(request.form.get("tags", ""))
     if name and url:
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO links (name, url, position) VALUES (?, ?, (SELECT COALESCE(MIN(position), 1) - 1 FROM links))",
-                (name, url),
+                "INSERT INTO links (name, url, position, tags) "
+                "VALUES (?, ?, (SELECT COALESCE(MIN(position), 1) - 1 FROM links), ?)",
+                (name, url, tags),
             )
+        backup_db("add")
     return redirect(url_for("index"))
 
 
@@ -104,12 +186,14 @@ def add():
 def edit(link_id):
     name = request.form["name"].strip()
     url = request.form["url"].strip()
+    tags = normalize_tags(request.form.get("tags", ""))
     if name and url:
         with get_db() as conn:
             conn.execute(
-                "UPDATE links SET name = ?, url = ? WHERE id = ?",
-                (name, url, link_id),
+                "UPDATE links SET name = ?, url = ?, tags = ? WHERE id = ?",
+                (name, url, tags, link_id),
             )
+        backup_db("edit")
     return redirect(url_for("index"))
 
 
@@ -156,7 +240,79 @@ def reorder():
 def delete(link_id):
     with get_db() as conn:
         conn.execute("DELETE FROM links WHERE id = ?", (link_id,))
+    backup_db("delete")
     return redirect(url_for("index"))
+
+
+@app.route("/export")
+def export():
+    """Download every link as a JSON document."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT name, url, favorite, position, tags FROM links "
+            "ORDER BY favorite DESC, position ASC, id ASC"
+        ).fetchall()
+    payload = {
+        "version": 1,
+        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "links": [dict(r) for r in rows],
+    }
+    body = json.dumps(payload, indent=2, ensure_ascii=False)
+    return Response(
+        body,
+        mimetype="application/json",
+        headers={"Content-Disposition": "attachment; filename=links.json"},
+    )
+
+
+@app.route("/import", methods=["POST"])
+def import_links():
+    """Import links from an uploaded JSON export (merge by name+url)."""
+    upload = request.files.get("file")
+    raw = upload.read().decode("utf-8") if upload else request.form.get("json", "")
+    try:
+        data = json.loads(raw or "{}")
+    except (ValueError, UnicodeDecodeError):
+        return jsonify(ok=False, error="invalid json"), 400
+
+    items = data.get("links") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return jsonify(ok=False, error="no links array"), 400
+
+    added = 0
+    with get_db() as conn:
+        existing = {(r["name"], r["url"]) for r in conn.execute("SELECT name, url FROM links")}
+        next_pos = conn.execute("SELECT COALESCE(MIN(position), 1) FROM links").fetchone()[0]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "")).strip()
+            url = str(item.get("url", "")).strip()
+            if not name or not url or (name, url) in existing:
+                continue
+            conn.execute(
+                "INSERT INTO links (name, url, favorite, position, tags) VALUES (?, ?, ?, ?, ?)",
+                (
+                    name,
+                    url,
+                    1 if item.get("favorite") else 0,
+                    next_pos - 1,
+                    normalize_tags(item.get("tags", "")),
+                ),
+            )
+            existing.add((name, url))
+            next_pos -= 1
+            added += 1
+    if added:
+        backup_db("import")
+    return jsonify(ok=True, added=added), 200
+
+
+@app.route("/backup", methods=["POST"])
+def backup_now():
+    """Trigger a manual backup from the UI."""
+    dest = backup_db("manual")
+    return jsonify(ok=bool(dest), backups=list_backups())
 
 
 init_db()
@@ -164,7 +320,7 @@ init_db()
 if __name__ == "__main__":
     extra = []
     for folder in ("templates", "static"):
-        p = pathlib.Path(__file__).parent / folder
+        p = BASE_DIR / folder
         if p.is_dir():
             for f in p.rglob("*"):
                 if f.is_file():

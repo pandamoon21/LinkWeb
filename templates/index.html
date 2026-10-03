@@ -5,34 +5,72 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LinkWeb</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script>
+        // Applied before paint so the theme never flashes.
+        (function () {
+            var saved = localStorage.getItem("linkweb-theme");
+            if (saved) document.documentElement.setAttribute("data-theme", saved);
+        })();
+    </script>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>LinkWeb</h1>
-            <div id="clock" class="clock">--:--:--</div>
+            <div class="header-right">
+                <div id="clock" class="clock">--:--:--</div>
+                <button id="theme-toggle" class="btn-icon" type="button" title="Toggle theme (t)" aria-label="Toggle theme">🌙</button>
+            </div>
         </div>
 
         <form method="POST" action="{{ url_for('add') }}" class="add-form">
             <input type="text" name="name" placeholder="Name" required>
             <input type="url" name="url" placeholder="https://..." required>
+            <input type="text" name="tags" placeholder="tags, comma separated" list="tag-suggestions">
+            <datalist id="tag-suggestions">
+                {% for tag in all_tags %}<option value="{{ tag }}">{% endfor %}
+            </datalist>
             <button type="submit">Add</button>
         </form>
 
+        <div class="toolbar">
+            <input type="search" id="search" class="search" placeholder="Search links...  (press /)" autocomplete="off">
+            <select id="tag-filter" class="tag-filter">
+                <option value="">All tags</option>
+                {% for tag in all_tags %}<option value="{{ tag }}">{{ tag }}</option>{% endfor %}
+            </select>
+            <a class="btn-tool" href="{{ url_for('export') }}" title="Download all links as JSON">Export</a>
+            <label class="btn-tool" title="Import links from a JSON export">
+                Import
+                <input type="file" id="import-file" accept="application/json,.json" hidden>
+            </label>
+            <button type="button" class="btn-tool" id="backup-now" title="Backup links.db now">Backup</button>
+        </div>
+
         <ul class="link-list" id="link-list">
             {% for link in links %}
-            <li class="link-item{% if link['favorite'] %} favorited{% endif %}" data-id="{{ link['id'] }}">
+            <li class="link-item{% if link['favorite'] %} favorited{% endif %}"
+                data-id="{{ link['id'] }}"
+                data-name="{{ link['name']|lower }}"
+                data-url="{{ link['url']|lower }}"
+                data-tags="{{ link['tags']|lower }}">
                 <div class="link-row">
                     <div class="drag-handle" aria-hidden="true">⠿</div>
+                    <img class="favicon" src="{{ favicon_url(link['url']) }}" alt="" loading="lazy" width="20" height="20">
                     <div class="link-left">
                         <div class="link-info">
                             <a href="{{ link['url'] }}" target="_blank" rel="noopener" class="link-name">{{ link['name'] }}</a>
                             <a href="{{ link['url'] }}" target="_blank" rel="noopener" class="link-url">{{ link['url'] }}</a>
+                            {% if tags_list(link['tags']) %}
+                            <div class="link-tags">
+                                {% for tag in tags_list(link['tags']) %}<span class="tag">{{ tag }}</span>{% endfor %}
+                            </div>
+                            {% endif %}
                         </div>
                         <div class="link-actions">
                             <button class="btn-edit" onclick="toggleEdit(this)">Edit</button>
                             <form method="POST" action="{{ url_for('delete', link_id=link['id']) }}" class="delete-form">
-                                <button type="submit" class="btn-delete" onclick="return confirm('Remove this link?')">Remove</button>
+                                <button type="submit" class="btn-delete" data-name="{{ link['name'] }}">Remove</button>
                             </form>
                         </div>
                     </div>
@@ -44,6 +82,7 @@
                 <form method="POST" action="{{ url_for('edit', link_id=link['id']) }}" class="edit-form hidden">
                     <input type="text" name="name" value="{{ link['name'] }}" required>
                     <input type="url" name="url" value="{{ link['url'] }}" required>
+                    <input type="text" name="tags" value="{{ link['tags'] }}" placeholder="tags, comma separated" list="tag-suggestions">
                     <div class="edit-actions">
                         <button type="submit" class="btn-save">Save</button>
                         <button type="button" class="btn-cancel" onclick="toggleEdit(this)">Cancel</button>
@@ -54,15 +93,135 @@
             <li class="empty">No links yet. Add one above.</li>
             {% endfor %}
         </ul>
+        <p class="empty-filter hidden" id="empty-filter">No links match your search.</p>
+
+        <footer class="footer">
+            <span id="backup-info">{{ backups|length }} backup{{ '' if backups|length == 1 else 's' }} available</span>
+        </footer>
     </div>
 
+    <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
     <script>
+        // --- Toast --------------------------------------------------------
+        var toastEl = document.getElementById("toast");
+        var toastTimer = null;
+        function toast(message, kind) {
+            toastEl.textContent = message;
+            toastEl.className = "toast show" + (kind ? " " + kind : "");
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(function () { toastEl.className = "toast"; }, 2600);
+        }
+
+        // --- Theme --------------------------------------------------------
+        var themeBtn = document.getElementById("theme-toggle");
+        function applyTheme(theme) {
+            document.documentElement.setAttribute("data-theme", theme);
+            localStorage.setItem("linkweb-theme", theme);
+            themeBtn.textContent = theme === "light" ? "☀️" : "🌙";
+        }
+        applyTheme(localStorage.getItem("linkweb-theme") || "dark");
+        themeBtn.addEventListener("click", function () {
+            applyTheme(document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light");
+        });
+
+        // --- Search + tag filter -----------------------------------------
+        var searchInput = document.getElementById("search");
+        var tagFilter = document.getElementById("tag-filter");
+        var emptyFilter = document.getElementById("empty-filter");
+
+        function applyFilters() {
+            var q = searchInput.value.trim().toLowerCase();
+            var tag = tagFilter.value.toLowerCase();
+            var shown = 0;
+            document.querySelectorAll("#link-list .link-item").forEach(function (el) {
+                var haystack = (el.dataset.name || "") + " " + (el.dataset.url || "") + " " + (el.dataset.tags || "");
+                var tags = (el.dataset.tags || "").split(",").map(function (t) { return t.trim(); });
+                var okText = !q || haystack.indexOf(q) !== -1;
+                var okTag = !tag || tags.indexOf(tag) !== -1;
+                var visible = okText && okTag;
+                el.classList.toggle("filtered-out", !visible);
+                if (visible) shown++;
+            });
+            emptyFilter.classList.toggle("hidden", shown !== 0);
+        }
+        searchInput.addEventListener("input", applyFilters);
+        tagFilter.addEventListener("change", applyFilters);
+
+        // --- Delete confirmation + toast ---------------------------------
+        document.querySelectorAll(".delete-form").forEach(function (form) {
+            form.addEventListener("submit", function (e) {
+                var name = form.querySelector(".btn-delete").dataset.name || "this link";
+                if (!confirm('Remove "' + name + '"?')) {
+                    e.preventDefault();
+                }
+            });
+        });
+
+        // --- Import -------------------------------------------------------
+        document.getElementById("import-file").addEventListener("change", function (e) {
+            var file = e.target.files[0];
+            if (!file) return;
+            var fd = new FormData();
+            fd.append("file", file);
+            fetch("{{ url_for('import_links') }}", { method: "POST", body: fd })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    if (res.ok) {
+                        toast("Imported " + res.added + " link(s)", "ok");
+                        setTimeout(function () { location.reload(); }, 900);
+                    } else {
+                        toast("Import failed: " + (res.error || "unknown"), "err");
+                    }
+                })
+                .catch(function () { toast("Import failed", "err"); });
+        });
+
+        // --- Manual backup ------------------------------------------------
+        document.getElementById("backup-now").addEventListener("click", function () {
+            fetch("{{ url_for('backup_now') }}", { method: "POST" })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    if (res.ok) {
+                        toast("Backup created (" + res.backups.length + " total)", "ok");
+                        document.getElementById("backup-info").textContent = res.backups.length + " backups available";
+                    } else {
+                        toast("Backup failed", "err");
+                    }
+                })
+                .catch(function () { toast("Backup failed", "err"); });
+        });
+
+        // --- Keyboard shortcuts ------------------------------------------
+        document.addEventListener("keydown", function (e) {
+            var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+            if (e.key === "/" && !typing) {
+                e.preventDefault();
+                searchInput.focus();
+            } else if (e.key === "n" && !typing) {
+                e.preventDefault();
+                document.querySelector('.add-form input[name="name"]').focus();
+            } else if (e.key === "t" && !typing) {
+                e.preventDefault();
+                themeBtn.click();
+            } else if (e.key === "Escape") {
+                if (document.activeElement === searchInput && searchInput.value) {
+                    searchInput.value = "";
+                    applyFilters();
+                } else if (typing) {
+                    document.activeElement.blur();
+                }
+            }
+        });
+
+        // --- Edit toggle --------------------------------------------------
         function toggleEdit(btn) {
             var item = btn.closest('.link-item');
             item.querySelector('.link-actions').classList.toggle('hidden');
             item.querySelector('.edit-form').classList.toggle('hidden');
         }
 
+        // --- Clock --------------------------------------------------------
         var clockOffset = 0;
 
         function syncClock() {
@@ -90,6 +249,7 @@
         setInterval(syncClock, 30000);
         setInterval(updateClock, 100);
 
+        // --- Drag and drop reordering ------------------------------------
         var list = document.getElementById("link-list");
         var dragItem = null;
         var placeholder = null;
@@ -107,7 +267,9 @@
         var MAX_STEP = 18;
 
         function items() {
-            return Array.prototype.slice.call(list.querySelectorAll(".link-item"));
+            // Only visible cards participate in reordering, so a filtered list
+            // cannot scramble the hidden ones' positions.
+            return Array.prototype.slice.call(list.querySelectorAll(".link-item:not(.filtered-out)"));
         }
 
         function persistOrder() {

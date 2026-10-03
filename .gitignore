@@ -3,6 +3,9 @@ __pycache__/
 *.db
 *.sqlite3
 .env
+config.yaml
+backups/
 venv/
+.venv/
 .vscode/
 .idea/

@@ -1,0 +1,16 @@
+# Copy to config.yaml for file-based configuration.
+# Precedence: environment variables > .env > config.yaml
+auth:
+  user: admin
+  password: change-me
+
+database:
+  path: links.db
+
+backup:
+  dir: backups
+  keep: 10
+
+server:
+  host: 0.0.0.0
+  port: 6999
