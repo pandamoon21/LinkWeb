@@ -19,8 +19,8 @@
             <h1>LinkWeb</h1>
             <div class="header-right">
                 <div class="clock-block">
-                    <div id="date" class="date">----</div>
-                    <div id="clock" class="clock">--:--:--</div>
+                    <div id="date" class="date">—</div>
+                    <div id="clock" class="clock">--:--.--</div>
                 </div>
                 <button id="theme-toggle" class="btn-icon" type="button" title="Toggle theme (t)" aria-label="Toggle theme">🌙</button>
             </div>
@@ -322,6 +322,7 @@
         }
 
         syncClock();
+        updateClock();
         setInterval(syncClock, 30000);
         setInterval(updateClock, 100);
 

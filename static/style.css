@@ -216,7 +216,6 @@ h1::after {
 }
 
 .add-form input {
-    flex: 1 1 100%;
     min-height: 44px;
 }
 
@@ -236,7 +235,6 @@ h1::after {
 }
 
 .add-form button {
-    flex: 1 1 100%;
     min-height: 44px;
     padding: 12px 18px;
     background: var(--accent);
@@ -261,20 +259,11 @@ h1::after {
 
 /* --- Toolbar ------------------------------------------------------------ */
 
-.toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin-bottom: var(--space-5);
-}
-
 .search {
-    flex: 1 1 100%;
     min-height: 44px;
 }
 
 .tag-filter {
-    flex: 1 1 100%;
     min-height: 44px;
     cursor: pointer;
     appearance: none;
@@ -324,12 +313,6 @@ h1::after {
 
 .menu > .btn-tool {
     width: 100%;
-}
-
-@media (min-width: 480px) {
-    .menu {
-        flex: 0 0 auto;
-    }
 }
 
 .menu-panel {
@@ -775,112 +758,88 @@ label:focus-within {
     }
 }
 
-/* --- Responsive --------------------------------------------------------- */
+/* --- Responsive ---------------------------------------------------------
+   Mobile first. A single set of min-width steps keeps every width covered
+   with no gaps and no overlapping max/min rules:
+     base        < 380px  (Galaxy Fold cover, tiny phones)
+     >= 380px             comfortable phones (iPhone 16, Z Fold 6 cover, S24)
+     >= 560px             tablets, foldables open, landscape phones
+     >= 900px             wide desktops
+   ------------------------------------------------------------------------ */
 
-@media (min-width: 480px) {
-    .add-form input {
-        flex: 1 1 0%;
-    }
-
-    .add-form input[name="tags"] {
-        flex: 1 1 0%;
-    }
-
-    .add-form button {
-        flex: 0 0 auto;
-    }
-
-    .search {
-        flex: 2 1 220px;
-    }
-
-    .tag-filter {
-        flex: 1 1 140px;
-    }
+/* Base (narrow phones): form stacks, toolbar actions pair up 2x2 so no
+   button is ever orphaned on its own row. */
+.add-form input {
+    flex: 1 1 100%;
 }
 
-/* From tablet up, keep the toolbar on two tidy rows: search across the top,
-   then the filter and four actions together underneath. */
-@media (min-width: 620px) {
-    .toolbar {
-        align-items: center;
-    }
-
-    .search {
-        flex: 1 1 100%;
-    }
-
-    .tag-filter {
-        flex: 1 1 auto;
-    }
-
-    .btn-tool {
-        flex: 0 0 auto;
-        padding: 10px 18px;
-    }
-
-    .menu {
-        flex: 0 0 auto;
-        min-width: 0;
-    }
-
-    .menu > .btn-tool {
-        width: auto;
-    }
+.add-form button {
+    flex: 1 1 100%;
 }
 
-/* Narrow phones: the row has five competing elements, so shrink every
-   fixed-width one and let the middle column keep the space. The four
-   toolbar actions pair up into an even 2x2 block instead of leaving an
-   orphan on its own row. */
-@media (max-width: 480px) {
-    .toolbar .btn-tool,
-    .toolbar .menu {
-        flex: 1 1 calc(50% - var(--space-2));
-    }
-
-    .menu > .btn-tool {
-        width: 100%;
-    }
-
-    .drag-handle {
-        padding: 0 2px 0 var(--space-2);
-    }
-
-    .favicon {
-        display: none;
-    }
-
-    .link-left {
-        padding: var(--space-3);
-    }
-
-    .link-actions {
-        flex-wrap: wrap;
-    }
-
-    .btn-edit,
-    .btn-delete {
-        flex: 1 1 auto;
-        min-width: 0;
-        padding: 8px 12px;
-    }
-
-    .btn-open {
-        min-width: 60px;
-        padding: 10px 12px;
-        font-size: 0.85rem;
-    }
-
-    .btn-fav {
-        min-width: 40px;
-        font-size: 1.35rem;
-    }
+.toolbar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+    margin-bottom: var(--space-5);
+    align-items: stretch;
 }
 
-/* Very narrow (Galaxy Fold 280px and similar): stack the action buttons on
-   their own line so nothing gets clipped. */
-@media (max-width: 360px) {
+.search,
+.tag-filter {
+    grid-column: 1 / -1;
+    min-height: 44px;
+    width: 100%;
+}
+
+.toolbar .btn-tool,
+.toolbar .menu {
+    width: 100%;
+    min-width: 0;
+}
+
+.menu > .btn-tool {
+    width: 100%;
+}
+
+/* Phone layout for a link card: five columns compete for space, so the
+   favicon is dropped and the fixed columns shrink. */
+.drag-handle {
+    padding: 0 2px 0 var(--space-2);
+}
+
+.favicon {
+    display: none;
+}
+
+.link-left {
+    padding: var(--space-3);
+}
+
+.link-actions {
+    flex-wrap: wrap;
+}
+
+.btn-edit,
+.btn-delete {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px 12px;
+}
+
+.btn-open {
+    min-width: 60px;
+    padding: 10px 12px;
+    font-size: 0.85rem;
+}
+
+.btn-fav {
+    min-width: 40px;
+    font-size: 1.35rem;
+}
+
+/* Very narrow (Galaxy Fold cover screen and similar). */
+@media (max-width: 379px) {
     h1 {
         font-size: 1.3rem;
     }
@@ -935,8 +894,98 @@ label:focus-within {
     }
 }
 
-@media (min-width: 768px) {
+/* From 380px up the add form can share one row and the toolbar keeps its
+   2x2 action block, now with breathing room. */
+@media (min-width: 380px) {
+    .add-form input {
+        flex: 1 1 0%;
+    }
+
+    .add-form button {
+        flex: 0 0 auto;
+    }
+
+    .toolbar .btn-tool,
+    .toolbar .menu {
+        flex: initial;
+    }
+}
+
+/* From 560px (tablets, open foldables, landscape phones) the toolbar
+   becomes two clean rows: search across the top, then the filter and the
+   four actions side by side. Cards get their favicon back. */
+@media (min-width: 560px) {
+    .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .search {
+        grid-column: auto;
+        flex: 1 1 100%;
+    }
+
+    .tag-filter {
+        grid-column: auto;
+        flex: 1 1 auto;
+    }
+    .toolbar .btn-tool {
+        flex: 0 0 auto;
+        width: auto;
+        padding: 10px 18px;
+    }
+
+    .toolbar .menu {
+        flex: 0 0 auto;
+        width: auto;
+    }
+
+    .menu > .btn-tool {
+        width: auto;
+    }
+
+    .favicon {
+        display: block;
+    }
+
+    .link-left {
+        padding: var(--space-3) var(--space-4);
+    }
+
+    .btn-edit,
+    .btn-delete {
+        flex: 0 0 auto;
+        min-height: 38px;
+    }
+
+    .btn-open {
+        min-width: 84px;
+        padding: 12px 22px;
+        font-size: 0.98rem;
+    }
+
+    .btn-fav {
+        min-width: 48px;
+        font-size: 1.5rem;
+    }
+
+    .drag-handle {
+        padding: 0 var(--space-1) 0 var(--space-3);
+    }
+}
+
+/* Wide desktops: give the list a little more presence. */
+@media (min-width: 900px) {
     .container {
         padding: var(--space-5);
+    }
+
+    .search {
+        flex: 1 1 100%;
+    }
+
+    .tag-filter {
+        flex: 1 1 220px;
     }
 }
