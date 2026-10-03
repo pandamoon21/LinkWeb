@@ -101,6 +101,29 @@ def list_backups():
     return sorted((p.name for p in BACKUP_DIR.glob("links-*.db")), reverse=True)
 
 
+def is_valid_db(path):
+    """A usable LinkWeb database must be a SQLite file with a links table."""
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+    return "links" in names
+
+
+def restore_db(source):
+    """Replace links.db with source, snapshotting the current file first."""
+    if not is_valid_db(source):
+        return False
+    backup_db("prerestore")
+    shutil.copy2(source, DB_PATH)
+    init_db()
+    return True
+
+
 def init_db():
     with get_db() as conn:
         conn.execute(
@@ -313,6 +336,44 @@ def backup_now():
     """Trigger a manual backup from the UI."""
     dest = backup_db("manual")
     return jsonify(ok=bool(dest), backups=list_backups())
+
+
+@app.route("/restore", methods=["POST"])
+def restore_now():
+    """Restore links.db from a snapshot in backups/."""
+    name = request.form.get("name", "")
+    # Only ever touch files inside backups/, never a caller-supplied path.
+    candidate = BACKUP_DIR / pathlib.Path(name).name
+    if not name or candidate.parent != BACKUP_DIR or not candidate.is_file():
+        return jsonify(ok=False, error="unknown backup"), 400
+    if not restore_db(candidate):
+        return jsonify(ok=False, error="not a valid database"), 400
+    backup_db("restored")
+    return jsonify(ok=True, restored=candidate.name, backups=list_backups())
+
+
+@app.route("/restore-upload", methods=["POST"])
+def restore_upload():
+    """Restore links.db from an uploaded .db file."""
+    upload = request.files.get("file")
+    if upload is None:
+        return jsonify(ok=False, error="no file"), 400
+    BACKUP_DIR.mkdir(exist_ok=True)
+    tmp = BACKUP_DIR / "upload-incoming.db"
+    upload.save(tmp)
+    if not restore_db(tmp):
+        tmp.unlink(missing_ok=True)
+        return jsonify(ok=False, error="not a valid database"), 400
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    tmp.replace(BACKUP_DIR / f"links-{stamp}-uploaded.db")
+    backup_db("restored")
+    return jsonify(ok=True, backups=list_backups())
+
+
+@app.route("/backups")
+def backups_json():
+    """List available snapshots for the restore picker."""
+    return jsonify(ok=True, backups=list_backups())
 
 
 init_db()

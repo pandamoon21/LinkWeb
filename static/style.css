@@ -109,7 +109,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-3);
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
     margin-bottom: var(--space-5);
 }
 
@@ -118,6 +119,7 @@ h1 {
     font-weight: 700;
     letter-spacing: -0.02em;
     color: var(--text);
+    min-width: 0;
 }
 
 h1::after {
@@ -134,6 +136,24 @@ h1::after {
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    min-width: 0;
+}
+
+.clock-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1.2;
+}
+
+.date {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 .clock {
@@ -292,6 +312,81 @@ h1::after {
 
 .btn-tool:active {
     transform: scale(0.98);
+}
+
+/* --- Restore menu ------------------------------------------------------- */
+
+.menu {
+    position: relative;
+    flex: 1 1 auto;
+    display: flex;
+}
+
+.menu > .btn-tool {
+    width: 100%;
+}
+
+@media (min-width: 480px) {
+    .menu {
+        flex: 0 0 auto;
+    }
+}
+
+.menu-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 20;
+    min-width: 260px;
+    max-width: min(320px, 90vw);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    box-shadow: var(--shadow-md);
+}
+
+.menu-panel.hidden {
+    display: none;
+}
+
+.menu-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+}
+
+.menu-note {
+    font-size: 0.85rem;
+    color: var(--text-faint);
+}
+
+.restore-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.restore-form select {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.82rem;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.upload-btn {
+    width: 100%;
 }
 
 /* --- Link list ---------------------------------------------------------- */
@@ -704,15 +799,139 @@ label:focus-within {
     }
 }
 
-@media (max-width: 400px) {
-    .btn-open {
-        min-width: 64px;
-        padding: 12px 14px;
-        font-size: 0.9rem;
+/* From tablet up, keep the toolbar on two tidy rows: search across the top,
+   then the filter and four actions together underneath. */
+@media (min-width: 620px) {
+    .toolbar {
+        align-items: center;
+    }
+
+    .search {
+        flex: 1 1 100%;
+    }
+
+    .tag-filter {
+        flex: 1 1 auto;
+    }
+
+    .btn-tool {
+        flex: 0 0 auto;
+        padding: 10px 18px;
+    }
+
+    .menu {
+        flex: 0 0 auto;
+        min-width: 0;
+    }
+
+    .menu > .btn-tool {
+        width: auto;
+    }
+}
+
+/* Narrow phones: the row has five competing elements, so shrink every
+   fixed-width one and let the middle column keep the space. The four
+   toolbar actions pair up into an even 2x2 block instead of leaving an
+   orphan on its own row. */
+@media (max-width: 480px) {
+    .toolbar .btn-tool,
+    .toolbar .menu {
+        flex: 1 1 calc(50% - var(--space-2));
+    }
+
+    .menu > .btn-tool {
+        width: 100%;
+    }
+
+    .drag-handle {
+        padding: 0 2px 0 var(--space-2);
+    }
+
+    .favicon {
+        display: none;
     }
 
     .link-left {
         padding: var(--space-3);
+    }
+
+    .link-actions {
+        flex-wrap: wrap;
+    }
+
+    .btn-edit,
+    .btn-delete {
+        flex: 1 1 auto;
+        min-width: 0;
+        padding: 8px 12px;
+    }
+
+    .btn-open {
+        min-width: 60px;
+        padding: 10px 12px;
+        font-size: 0.85rem;
+    }
+
+    .btn-fav {
+        min-width: 40px;
+        font-size: 1.35rem;
+    }
+}
+
+/* Very narrow (Galaxy Fold 280px and similar): stack the action buttons on
+   their own line so nothing gets clipped. */
+@media (max-width: 360px) {
+    h1 {
+        font-size: 1.3rem;
+    }
+
+    h1::after {
+        width: 26px;
+        margin-top: 4px;
+    }
+
+    .clock {
+        font-size: 1.05rem;
+    }
+
+    .date {
+        font-size: 0.62rem;
+    }
+
+    .btn-icon {
+        width: 38px;
+        height: 38px;
+        font-size: 1rem;
+    }
+
+    .header-right {
+        gap: var(--space-2);
+    }
+
+    .btn-open {
+        min-width: 52px;
+        padding: 8px;
+        font-size: 0.78rem;
+    }
+
+    .btn-fav {
+        min-width: 34px;
+        padding: 0 6px;
+        font-size: 1.2rem;
+    }
+
+    .link-left {
+        padding: var(--space-2) var(--space-3);
+    }
+
+    .link-name {
+        font-size: 0.98rem;
+    }
+
+    .btn-edit,
+    .btn-delete {
+        padding: 7px 10px;
+        font-size: 0.82rem;
     }
 }
 

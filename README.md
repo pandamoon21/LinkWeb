@@ -20,8 +20,11 @@ own machine.
   merge one back in later.
 - **Automatic backups** — `links.db` is snapshotted to `backups/` on every
   add, edit, delete, and import, keeping the newest 10. You can also trigger a
-  backup by hand.
+  backup by hand, and **restore** a snapshot or upload a `.db` file, all from
+  the UI.
 - **Favicons** — each link shows the site's icon.
+- **Responsive** — works from 280 px phones up to wide desktops, in portrait
+  and landscape; the layout reflows instead of scrolling sideways.
 - **Basic auth** — optional HTTP Basic auth so the app can be exposed without
   giving everyone write access.
 
@@ -66,6 +69,8 @@ gunicorn --workers 2 --bind 0.0.0.0:6999 app:app
 | Export | Click **Export** to download `links.json`. |
 | Import | Click **Import** and pick a JSON file exported earlier. |
 | Back up now | Click **Backup**. |
+| Restore a backup | Click **Restore**, pick a snapshot, then **Restore**. |
+| Restore from a file | Click **Restore** → **Upload .db**. |
 | Switch theme | Click the moon/sun button, or press `t`. |
 
 ### Keyboard shortcuts
@@ -162,11 +167,21 @@ Everything lives in a single SQLite file (`links.db`). Schema changes are
 applied additively on startup, so an existing database keeps working.
 
 Backups are written to `backups/links-<timestamp>-<reason>.db` and pruned to
-the newest `backup.keep` entries. Restore one by stopping the service and
-copying it over `links.db`:
+the newest `backup.keep` entries.
+
+Restore from the UI: **Restore** → choose a snapshot → **Restore**, or
+**Upload .db** to restore an arbitrary database file. Before anything is
+replaced, the current `links.db` is snapshotted as `*-prerestore.db`, and the
+file is validated as a SQLite database containing a `links` table, so a wrong
+or corrupt file is rejected instead of wiping your data.
+
+Restore manually by stopping the service and copying a snapshot over
+`links.db`:
 
 ```bash
+sudo systemctl stop linkweb
 cp backups/links-20260101-120000-manual.db links.db
+sudo systemctl start linkweb
 ```
 
 ## Project layout

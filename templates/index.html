@@ -18,7 +18,10 @@
         <div class="header">
             <h1>LinkWeb</h1>
             <div class="header-right">
-                <div id="clock" class="clock">--:--:--</div>
+                <div class="clock-block">
+                    <div id="date" class="date">----</div>
+                    <div id="clock" class="clock">--:--:--</div>
+                </div>
                 <button id="theme-toggle" class="btn-icon" type="button" title="Toggle theme (t)" aria-label="Toggle theme">🌙</button>
             </div>
         </div>
@@ -45,6 +48,26 @@
                 <input type="file" id="import-file" accept="application/json,.json" hidden>
             </label>
             <button type="button" class="btn-tool" id="backup-now" title="Backup links.db now">Backup</button>
+            <div class="menu">
+                <button type="button" class="btn-tool" id="restore-toggle" aria-haspopup="true" aria-expanded="false" title="Restore from a backup">Restore</button>
+                <div class="menu-panel hidden" id="restore-panel" role="menu">
+                    <p class="menu-title">Restore links.db</p>
+                    {% if backups %}
+                    <form method="POST" action="{{ url_for('restore_now') }}" class="restore-form" onsubmit="return confirm('Replace all current data with this backup?')">
+                        <select name="name" aria-label="Choose a backup">
+                            {% for b in backups %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+                        </select>
+                        <button type="submit" class="btn-save">Restore</button>
+                    </form>
+                    {% else %}
+                    <p class="menu-note">No backups yet.</p>
+                    {% endif %}
+                    <label class="btn-tool upload-btn" title="Upload a links.db file to restore">
+                        Upload .db
+                        <input type="file" id="restore-file" accept=".db,application/octet-stream" hidden>
+                    </label>
+                </div>
+            </div>
         </div>
 
         <ul class="link-list" id="link-list">
@@ -192,6 +215,53 @@
                 .catch(function () { toast("Backup failed", "err"); });
         });
 
+        // --- Restore menu + upload ---------------------------------------
+        var restoreToggle = document.getElementById("restore-toggle");
+        var restorePanel = document.getElementById("restore-panel");
+
+        restoreToggle.addEventListener("click", function (e) {
+            e.stopPropagation();
+            var open = restorePanel.classList.toggle("hidden") === false;
+            restoreToggle.setAttribute("aria-expanded", String(open));
+        });
+
+        document.addEventListener("click", function (e) {
+            if (restorePanel.classList.contains("hidden")) return;
+            if (!restorePanel.contains(e.target) && e.target !== restoreToggle) {
+                restorePanel.classList.add("hidden");
+                restoreToggle.setAttribute("aria-expanded", "false");
+            }
+        });
+
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && !restorePanel.classList.contains("hidden")) {
+                restorePanel.classList.add("hidden");
+                restoreToggle.setAttribute("aria-expanded", "false");
+            }
+        });
+
+        document.getElementById("restore-file").addEventListener("change", function (e) {
+            var file = e.target.files[0];
+            if (!file) return;
+            if (!confirm("Replace all current data with " + file.name + "?")) {
+                e.target.value = "";
+                return;
+            }
+            var fd = new FormData();
+            fd.append("file", file);
+            fetch("{{ url_for('restore_upload') }}", { method: "POST", body: fd })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    if (res.ok) {
+                        toast("Database restored", "ok");
+                        setTimeout(function () { location.reload(); }, 900);
+                    } else {
+                        toast("Restore failed: " + (res.error || "unknown"), "err");
+                    }
+                })
+                .catch(function () { toast("Restore failed", "err"); });
+        });
+
         // --- Keyboard shortcuts ------------------------------------------
         document.addEventListener("keydown", function (e) {
             var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
@@ -243,6 +313,12 @@
             var s = String(now.getSeconds()).padStart(2, "0");
             var ms = String(Math.floor(now.getMilliseconds() / 100));
             document.getElementById("clock").textContent = h + ":" + m + ":" + s + "." + ms;
+            document.getElementById("date").textContent = now.toLocaleDateString(undefined, {
+                weekday: "short",
+                day: "2-digit",
+                month: "short",
+                year: "numeric"
+            });
         }
 
         syncClock();
