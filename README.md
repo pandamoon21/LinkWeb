@@ -6,6 +6,8 @@ own machine.
 
 ![LinkWeb dark theme](docs/screenshot-dark.png)
 
+*Screenshots show sample data.*
+
 ## Features
 
 - **Links with tags** — add a name, URL, and comma-separated tags; filter the
