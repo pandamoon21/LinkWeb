@@ -1,11 +1,41 @@
+import hmac
 import os
 import pathlib
-from flask import Flask, jsonify, render_template, request, redirect, url_for
+from flask import Flask, jsonify, render_template, request, redirect, url_for, Response
 import sqlite3
 
 app = Flask(__name__)
 
 DB_PATH = "links.db"
+
+# --- Basic auth -----------------------------------------------------------
+# Set these via environment variables (e.g. in the systemd unit). If
+# LINKWEB_USER / LINKWEB_PASSWORD are unset, auth is disabled so local
+# development still works out of the box.
+AUTH_USER = os.environ.get("LINKWEB_USER", "")
+AUTH_PASSWORD = os.environ.get("LINKWEB_PASSWORD", "")
+AUTH_ENABLED = bool(AUTH_USER and AUTH_PASSWORD)
+
+
+def _check_auth(auth):
+    return hmac.compare_digest(auth.username, AUTH_USER) and hmac.compare_digest(
+        auth.password, AUTH_PASSWORD
+    )
+
+
+@app.before_request
+def require_auth():
+    if not AUTH_ENABLED:
+        return None
+    auth = request.authorization
+    if auth is None or not _check_auth(auth):
+        return Response(
+            "Authentication required.",
+            401,
+            {"WWW-Authenticate": 'Basic realm="LinkWeb"'},
+        )
+    return None
+
 
 
 def get_db():
@@ -129,9 +159,9 @@ def delete(link_id):
     return redirect(url_for("index"))
 
 
-if __name__ == "__main__":
-    init_db()
+init_db()
 
+if __name__ == "__main__":
     extra = []
     for folder in ("templates", "static"):
         p = pathlib.Path(__file__).parent / folder
